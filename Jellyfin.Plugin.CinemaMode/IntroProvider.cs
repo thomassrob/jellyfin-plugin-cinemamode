@@ -19,26 +19,65 @@ namespace Jellyfin.Plugin.CinemaMode
         private readonly ILogger<IntroProvider> Logger;
 
         /// <summary>
-        /// The name of the library to filter intros for. 
+        /// The names of the libraries to filter intros for. 
         /// If null or empty, intros are provided for all movies.
         /// </summary>
-        public string TargetLibraryName { get; set; } = "Movies";
+        public List<string> TargetLibraryNames { get; set; } = new List<string>();
 
         public IntroProvider(ILogger<IntroProvider> logger)
         {
             this.Logger = logger;
             
+            // Load target library names from configuration
+            LoadTargetLibraryNames();
+            
             // Log initialization with debug information
-            this.Logger.LogInformation($"CinemaMode IntroProvider initialized with target library: '{TargetLibraryName}'");
+            this.Logger.LogInformation($"CinemaMode IntroProvider initialized with target libraries: [{string.Join(", ", TargetLibraryNames)}]");
             this.Logger.LogDebug("Debug logging enabled for CinemaMode IntroProvider");
             this.Logger.LogDebug($"Logger type: {logger.GetType().Name}");
-            this.Logger.LogDebug($"Target library name: '{TargetLibraryName}'");
+            this.Logger.LogDebug($"Target library names: [{string.Join(", ", TargetLibraryNames)}]");
             this.Logger.LogDebug($"Plugin instance available: {Plugin.Instance != null}");
         }
 
         /// <summary>
+        /// Loads target library names from the plugin configuration.
+        /// Parses the comma-separated IncludedLibraries string into a list.
+        /// </summary>
+        private void LoadTargetLibraryNames()
+        {
+            try
+            {
+                if (Plugin.Instance?.Configuration?.IncludedLibraries != null)
+                {
+                    var includedLibraries = Plugin.Instance.Configuration.IncludedLibraries.Trim();
+                    if (!string.IsNullOrEmpty(includedLibraries))
+                    {
+                        TargetLibraryNames = includedLibraries
+                            .Split(',')
+                            .Select(lib => lib.Trim())
+                            .Where(lib => !string.IsNullOrEmpty(lib))
+                            .ToList();
+                    }
+                    else
+                    {
+                        TargetLibraryNames = new List<string>();
+                    }
+                }
+                else
+                {
+                    TargetLibraryNames = new List<string>();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Error loading target library names from configuration: {ex.Message}");
+                TargetLibraryNames = new List<string>();
+            }
+        }
+
+        /// <summary>
         /// Gets intro content for the specified item and user.
-        /// Only provides intros for movies in the target library (if specified).
+        /// Only provides intros for movies in the target libraries (if specified).
         /// </summary>
         /// <param name="item">The item to get intros for</param>
         /// <param name="user">The user requesting intros</param>
@@ -57,16 +96,16 @@ namespace Jellyfin.Plugin.CinemaMode
             this.Logger.LogDebug($"Item '{item.Name}' is a movie, proceeding with library check");
 
             // Apply library filtering if enabled
-            if (!string.IsNullOrEmpty(TargetLibraryName))
+            if (TargetLibraryNames != null && TargetLibraryNames.Any())
             {
-                if (!IsItemInTargetLibrary(item))
+                if (!IsItemInTargetLibraries(item))
                 {
                     return Task.FromResult(Enumerable.Empty<IntroInfo>());
                 }
             }
             else
             {
-                this.Logger.LogDebug("Library filtering disabled (TargetLibraryName is null or empty), proceeding with intros for all movies");
+                this.Logger.LogDebug("Library filtering disabled (TargetLibraryNames is null or empty), proceeding with intros for all movies");
             }
 
             // Get intros from IntroManager
@@ -75,7 +114,7 @@ namespace Jellyfin.Plugin.CinemaMode
             var intros = introManager.Get(item, user);
             var introList = intros.ToList();
             
-            this.Logger.LogInformation($"Found {introList.Count} intros for item '{item.Name}' in library '{TargetLibraryName}'");
+            this.Logger.LogInformation($"Found {introList.Count} intros for item '{item.Name}' in target libraries [{string.Join(", ", TargetLibraryNames)}]");
             foreach (var intro in introList)
             {
                 this.Logger.LogDebug($"Intro: ItemId={intro.ItemId}, Path={intro.Path}");
@@ -85,13 +124,13 @@ namespace Jellyfin.Plugin.CinemaMode
         }
 
         /// <summary>
-        /// Checks if the item belongs to the target library.
+        /// Checks if the item belongs to any of the target libraries.
         /// </summary>
         /// <param name="item">The item to check</param>
-        /// <returns>True if the item is in the target library, false otherwise</returns>
-        private bool IsItemInTargetLibrary(BaseItem item)
+        /// <returns>True if the item is in any of the target libraries, false otherwise</returns>
+        private bool IsItemInTargetLibraries(BaseItem item)
         {
-            this.Logger.LogDebug($"Library filtering enabled. Target library: '{TargetLibraryName}'");
+            this.Logger.LogDebug($"Library filtering enabled. Target libraries: [{string.Join(", ", TargetLibraryNames)}]");
             
             var library = GetLibraryFromItem(item);
             if (library == null)
@@ -102,13 +141,13 @@ namespace Jellyfin.Plugin.CinemaMode
 
             this.Logger.LogDebug($"Item '{item.Name}' found in library: '{library.Name}'");
 
-            if (!library.Name.Equals(TargetLibraryName, System.StringComparison.OrdinalIgnoreCase))
+            if (!TargetLibraryNames.Any(targetName => targetName.Equals(library.Name, System.StringComparison.OrdinalIgnoreCase)))
             {
-                this.Logger.LogInformation($"Skipping intros for item '{item.Name}' - in library '{library.Name}' but target is '{TargetLibraryName}'");
+                this.Logger.LogInformation($"Skipping intros for item '{item.Name}' - in library '{library.Name}' but target libraries are [{string.Join(", ", TargetLibraryNames)}]");
                 return false;
             }
 
-            this.Logger.LogInformation($"Item '{item.Name}' matches target library '{TargetLibraryName}', proceeding with intros");
+            this.Logger.LogInformation($"Item '{item.Name}' matches target library '{library.Name}', proceeding with intros");
             return true;
         }
 

@@ -197,6 +197,20 @@
                         <div class="paperList folderList" id="seasonal-tag-definitions">
                         </div>
                     </fieldset>
+
+                    <!-- Included Libraries -->
+                    <fieldset class="verticalSection verticalSection-extrabottompadding">
+                        <legend>
+                            <h3 class="sectionTitle">Included Libraries</h3>
+                        </legend>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="included-libraries">Library Names</label>
+                            <input type="text" id="included-libraries" name="included-libraries" is="emby-input"/>
+                            <div class="fieldDescription">
+                                Comma-separated list of library names where Cinema Mode should be active. Leave empty for all libraries.
+                            </div>
+                        </div>
+                    </fieldset>
                     <br/>
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>${Save}</span></button>
                 </form>
@@ -494,6 +508,7 @@
 
                     initSeasonalTagDefs(config.SeasonalTagDefinitions);
                     initTrailerRules(config.TrailerSelectionRules);
+                    $('#included-libraries').val(config.IncludedLibraries);
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -519,6 +534,7 @@
                     config.NumberOfTrailers = parseInt(NumberOfTrailers);
                     config.EnforceRatingLimitTrailers = document.getElementById('enforce-rating-limit-trailers').checked;
                     config.TrailerConsumeMode = document.getElementById('trailer-rules-consume-mode').checked;
+                    config.IncludedLibraries = $('#included-libraries').val();
 
                     ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                 });
