@@ -8,26 +8,46 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.CinemaMode
 {
+    /// <summary>
+    /// Provides intro content (trailers, pre-rolls) for movies in Jellyfin.
+    /// Supports filtering by specific library names.
+    /// </summary>
     public class IntroProvider : IIntroProvider
     {
         public string Name { get; } = "CinemaMode";
 
-        public readonly ILogger<IntroProvider> Logger;
+        private readonly ILogger<IntroProvider> Logger;
 
-        // Add property to specify the target library name
-        public string TargetLibraryName { get; set; } = "Movies"; // Default to "Movies"
+        /// <summary>
+        /// The name of the library to filter intros for. 
+        /// If null or empty, intros are provided for all movies.
+        /// </summary>
+        public string TargetLibraryName { get; set; } = "Movies";
 
         public IntroProvider(ILogger<IntroProvider> logger)
         {
             this.Logger = logger;
+            
+            // Log initialization with debug information
             this.Logger.LogInformation($"CinemaMode IntroProvider initialized with target library: '{TargetLibraryName}'");
+            this.Logger.LogDebug("Debug logging enabled for CinemaMode IntroProvider");
+            this.Logger.LogDebug($"Logger type: {logger.GetType().Name}");
+            this.Logger.LogDebug($"Target library name: '{TargetLibraryName}'");
+            this.Logger.LogDebug($"Plugin instance available: {Plugin.Instance != null}");
         }
 
+        /// <summary>
+        /// Gets intro content for the specified item and user.
+        /// Only provides intros for movies in the target library (if specified).
+        /// </summary>
+        /// <param name="item">The item to get intros for</param>
+        /// <param name="user">The user requesting intros</param>
+        /// <returns>Collection of intro information</returns>
         public Task<IEnumerable<IntroInfo>> GetIntros(BaseItem item, User user)
         {
             this.Logger.LogDebug($"GetIntros called for item: '{item.Name}' (ID: {item.Id}) by user: '{user.Username}'");
 
-            // Check item type, for now just pre roll movies
+            // Only process movies
             if (item is not MediaBrowser.Controller.Entities.Movies.Movie)
             {
                 this.Logger.LogDebug($"Skipping intros for item '{item.Name}' - not a movie (type: {item.GetType().Name})");
@@ -36,35 +56,22 @@ namespace Jellyfin.Plugin.CinemaMode
 
             this.Logger.LogDebug($"Item '{item.Name}' is a movie, proceeding with library check");
 
-            // Check if the item belongs to the target library
+            // Apply library filtering if enabled
             if (!string.IsNullOrEmpty(TargetLibraryName))
             {
-                this.Logger.LogDebug($"Library filtering enabled. Target library: '{TargetLibraryName}'");
-                
-                var library = GetLibraryFromItem(item);
-                if (library == null)
+                if (!IsItemInTargetLibrary(item))
                 {
-                    this.Logger.LogWarning($"Could not determine library for item '{item.Name}' (Path: {item.Path})");
                     return Task.FromResult(Enumerable.Empty<IntroInfo>());
                 }
-
-                this.Logger.LogDebug($"Item '{item.Name}' found in library: '{library.Name}'");
-
-                if (!library.Name.Equals(TargetLibraryName, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    this.Logger.LogInformation($"Skipping intros for item '{item.Name}' - in library '{library.Name}' but target is '{TargetLibraryName}'");
-                    return Task.FromResult(Enumerable.Empty<IntroInfo>());
-                }
-
-                this.Logger.LogInformation($"Item '{item.Name}' matches target library '{TargetLibraryName}', proceeding with intros");
             }
             else
             {
                 this.Logger.LogDebug("Library filtering disabled (TargetLibraryName is null or empty), proceeding with intros for all movies");
             }
 
+            // Get intros from IntroManager
             this.Logger.LogDebug($"Creating IntroManager and getting intros for item '{item.Name}'");
-            IntroManager introManager = new IntroManager(this.Logger);
+            var introManager = new IntroManager(this.Logger);
             var intros = introManager.Get(item, user);
             var introList = intros.ToList();
             
@@ -77,13 +84,45 @@ namespace Jellyfin.Plugin.CinemaMode
             return Task.FromResult(introList.AsEnumerable());
         }
 
+        /// <summary>
+        /// Checks if the item belongs to the target library.
+        /// </summary>
+        /// <param name="item">The item to check</param>
+        /// <returns>True if the item is in the target library, false otherwise</returns>
+        private bool IsItemInTargetLibrary(BaseItem item)
+        {
+            this.Logger.LogDebug($"Library filtering enabled. Target library: '{TargetLibraryName}'");
+            
+            var library = GetLibraryFromItem(item);
+            if (library == null)
+            {
+                this.Logger.LogWarning($"Could not determine library for item '{item.Name}' (Path: {item.Path})");
+                return false;
+            }
+
+            this.Logger.LogDebug($"Item '{item.Name}' found in library: '{library.Name}'");
+
+            if (!library.Name.Equals(TargetLibraryName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                this.Logger.LogInformation($"Skipping intros for item '{item.Name}' - in library '{library.Name}' but target is '{TargetLibraryName}'");
+                return false;
+            }
+
+            this.Logger.LogInformation($"Item '{item.Name}' matches target library '{TargetLibraryName}', proceeding with intros");
+            return true;
+        }
+
+        /// <summary>
+        /// Finds the library that contains the specified item.
+        /// </summary>
+        /// <param name="item">The item to find the library for</param>
+        /// <returns>The library folder containing the item, or null if not found</returns>
         private MediaBrowser.Controller.Entities.CollectionFolder GetLibraryFromItem(BaseItem item)
         {
             this.Logger.LogDebug($"Getting library for item: '{item.Name}' (Path: {item.Path})");
             
             try
             {
-                // Get all libraries and find the one that contains this item
                 var libraries = Plugin.LibraryManager.GetVirtualFolders();
                 this.Logger.LogDebug($"Found {libraries.Count()} total libraries");
 
@@ -95,7 +134,6 @@ namespace Jellyfin.Plugin.CinemaMode
                     {
                         this.Logger.LogDebug($"Library '{library.Name}' is a movie library, checking if item belongs to it");
                         
-                        // Get the library folder
                         var libraryFolder = Plugin.LibraryManager.GetItemById(library.ItemId) as MediaBrowser.Controller.Entities.CollectionFolder;
                         if (libraryFolder == null)
                         {
@@ -103,7 +141,6 @@ namespace Jellyfin.Plugin.CinemaMode
                             continue;
                         }
 
-                        // Check if the item belongs to this library
                         if (IsItemInLibrary(item, libraryFolder))
                         {
                             this.Logger.LogDebug($"Item '{item.Name}' belongs to library '{library.Name}'");
@@ -130,51 +167,18 @@ namespace Jellyfin.Plugin.CinemaMode
             return null;
         }
 
-        private System.Guid GetLibraryIdFromItem(BaseItem item)
-        {
-            this.Logger.LogDebug($"GetLibraryIdFromItem called for item: '{item.Name}' (ID: {item.Id}, ParentId: {item.ParentId}, Path: {item.GetInternalMetadataPath()})");
-            
-            if (item.ParentId != System.Guid.Empty)
-            {
-                this.Logger.LogDebug($"Item '{item.Name}' has parent ID: {item.ParentId}, getting parent item");
-                
-                var parent = Plugin.LibraryManager.GetItemById(item.ParentId);
-                if (parent != null)
-                {
-                    this.Logger.LogDebug($"Found parent: '{parent.Name}' (ID: {parent.Id}, Type: {parent.GetType().Name})");
-                    
-                    if (parent is MediaBrowser.Controller.Entities.CollectionFolder)
-                    {
-                        this.Logger.LogDebug($"Parent '{parent.Name}' is a CollectionFolder (library), returning its ID: {parent.Id}");
-                        return parent.Id;
-                    }
-                    else
-                    {
-                        this.Logger.LogDebug($"Parent '{parent.Name}' is not a CollectionFolder, recursively checking its parent");
-                        return GetLibraryIdFromItem(parent);
-                    }
-                }
-                else
-                {
-                    this.Logger.LogWarning($"Could not find parent item with ID: {item.ParentId} for item '{item.Name}'");
-                }
-            }
-            else
-            {
-                this.Logger.LogDebug($"Item '{item.Name}' has no parent (ParentId is Guid.Empty)");
-            }
-            
-            this.Logger.LogDebug($"No library found for item '{item.Name}', returning Guid.Empty");
-            return System.Guid.Empty;
-        }
-
+        /// <summary>
+        /// Checks if an item belongs to a specific library using Jellyfin's internal item hierarchy.
+        /// </summary>
+        /// <param name="item">The item to check</param>
+        /// <param name="libraryFolder">The library folder to check against</param>
+        /// <returns>True if the item is in the library, false otherwise</returns>
         private bool IsItemInLibrary(BaseItem item, BaseItem libraryFolder)
         {
             this.Logger.LogDebug($"Checking if item '{item.Name}' (ID: {item.Id}) is in library folder '{libraryFolder.Name}' (ID: {libraryFolder.Id})");
             
             try
             {
-                // Use InternalItemsQuery to check if the item is in the specific library
                 var query = new InternalItemsQuery();
                 query.AncestorIds = new System.Guid[] { libraryFolder.Id };
                 var libraryItems = Plugin.LibraryManager.GetItemList(query);
@@ -190,10 +194,13 @@ namespace Jellyfin.Plugin.CinemaMode
             }
         }
 
+        /// <summary>
+        /// Gets all intro files. Not implemented in this plugin.
+        /// </summary>
+        /// <returns>Empty collection</returns>
         public IEnumerable<string> GetAllIntroFiles()
         {
             this.Logger.LogDebug("GetAllIntroFiles called - not implemented");
-            // not implemented
             return Enumerable.Empty<string>();
         }
     }
