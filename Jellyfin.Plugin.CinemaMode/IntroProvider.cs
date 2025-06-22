@@ -24,26 +24,79 @@ namespace Jellyfin.Plugin.CinemaMode
         /// </summary>
         public List<string> TargetLibraryNames { get; set; } = new List<string>();
 
+        /// <summary>
+        /// Cached target library names to avoid repeated configuration parsing.
+        /// </summary>
+        private List<string> _cachedTargetLibraryNames;
+
+        /// <summary>
+        /// Cached configuration value to detect changes.
+        /// </summary>
+        private string _cachedIncludedLibraries;
+
+        /// <summary>
+        /// Flag to indicate if the cache needs to be refreshed.
+        /// </summary>
+        private bool _cacheNeedsRefresh = true;
+
         public IntroProvider(ILogger<IntroProvider> logger)
         {
             this.Logger = logger;
             
-            // Load target library names from configuration
-            LoadTargetLibraryNames();
+            // Register this instance with the Plugin for cache management
+            if (Plugin.Instance != null)
+            {
+                Plugin.IntroProviderInstance = this;
+                this.Logger.LogDebug("IntroProvider registered with Plugin instance for cache management");
+            }
             
             // Log initialization with debug information
-            this.Logger.LogInformation($"CinemaMode IntroProvider initialized with target libraries: [{string.Join(", ", TargetLibraryNames)}]");
+            this.Logger.LogInformation($"CinemaMode IntroProvider initialized");
             this.Logger.LogDebug("Debug logging enabled for CinemaMode IntroProvider");
             this.Logger.LogDebug($"Logger type: {logger.GetType().Name}");
-            this.Logger.LogDebug($"Target library names: [{string.Join(", ", TargetLibraryNames)}]");
             this.Logger.LogDebug($"Plugin instance available: {Plugin.Instance != null}");
+        }
+
+        /// <summary>
+        /// Clears the cache to force a refresh of target library names on next access.
+        /// This should be called when the plugin configuration is updated.
+        /// </summary>
+        public void ClearCache()
+        {
+            this.Logger.LogDebug("Clearing target library names cache");
+            _cacheNeedsRefresh = true;
+            _cachedTargetLibraryNames = null;
+            _cachedIncludedLibraries = null;
+        }
+
+        /// <summary>
+        /// Gets the cached target library names, refreshing the cache if needed.
+        /// Automatically detects configuration changes and refreshes the cache.
+        /// </summary>
+        /// <returns>List of target library names</returns>
+        private List<string> GetTargetLibraryNames()
+        {
+            var currentIncludedLibraries = Plugin.Instance?.Configuration?.IncludedLibraries ?? "";
+            
+            // Check if configuration has changed
+            if (_cacheNeedsRefresh || _cachedTargetLibraryNames == null || 
+                _cachedIncludedLibraries != currentIncludedLibraries)
+            {
+                this.Logger.LogDebug("Refreshing target library names cache due to configuration change");
+                _cachedTargetLibraryNames = LoadTargetLibraryNames();
+                _cachedIncludedLibraries = currentIncludedLibraries;
+                _cacheNeedsRefresh = false;
+                this.Logger.LogDebug($"Cached target libraries: [{string.Join(", ", _cachedTargetLibraryNames)}]");
+            }
+            
+            return _cachedTargetLibraryNames;
         }
 
         /// <summary>
         /// Loads target library names from the plugin configuration.
         /// Parses the comma-separated IncludedLibraries string into a list.
         /// </summary>
-        private void LoadTargetLibraryNames()
+        private List<string> LoadTargetLibraryNames()
         {
             try
             {
@@ -52,26 +105,19 @@ namespace Jellyfin.Plugin.CinemaMode
                     var includedLibraries = Plugin.Instance.Configuration.IncludedLibraries.Trim();
                     if (!string.IsNullOrEmpty(includedLibraries))
                     {
-                        TargetLibraryNames = includedLibraries
+                        return includedLibraries
                             .Split(',')
                             .Select(lib => lib.Trim())
                             .Where(lib => !string.IsNullOrEmpty(lib))
                             .ToList();
                     }
-                    else
-                    {
-                        TargetLibraryNames = new List<string>();
-                    }
                 }
-                else
-                {
-                    TargetLibraryNames = new List<string>();
-                }
+                return new List<string>();
             }
             catch (System.Exception ex)
             {
                 this.Logger.LogError($"Error loading target library names from configuration: {ex.Message}");
-                TargetLibraryNames = new List<string>();
+                return new List<string>();
             }
         }
 
@@ -95,10 +141,13 @@ namespace Jellyfin.Plugin.CinemaMode
 
             this.Logger.LogDebug($"Item '{item.Name}' is a movie, proceeding with library check");
 
+            // Get cached target library names
+            var targetLibraryNames = GetTargetLibraryNames();
+
             // Apply library filtering if enabled
-            if (TargetLibraryNames != null && TargetLibraryNames.Any())
+            if (targetLibraryNames != null && targetLibraryNames.Any())
             {
-                if (!IsItemInTargetLibraries(item))
+                if (!IsItemInTargetLibraries(item, targetLibraryNames))
                 {
                     return Task.FromResult(Enumerable.Empty<IntroInfo>());
                 }
@@ -114,7 +163,7 @@ namespace Jellyfin.Plugin.CinemaMode
             var intros = introManager.Get(item, user);
             var introList = intros.ToList();
             
-            this.Logger.LogInformation($"Found {introList.Count} intros for item '{item.Name}' in target libraries [{string.Join(", ", TargetLibraryNames)}]");
+            this.Logger.LogInformation($"Found {introList.Count} intros for item '{item.Name}' in target libraries [{string.Join(", ", targetLibraryNames)}]");
             foreach (var intro in introList)
             {
                 this.Logger.LogDebug($"Intro: ItemId={intro.ItemId}, Path={intro.Path}");
@@ -127,10 +176,11 @@ namespace Jellyfin.Plugin.CinemaMode
         /// Checks if the item belongs to any of the target libraries.
         /// </summary>
         /// <param name="item">The item to check</param>
+        /// <param name="targetLibraryNames">The list of target library names</param>
         /// <returns>True if the item is in any of the target libraries, false otherwise</returns>
-        private bool IsItemInTargetLibraries(BaseItem item)
+        private bool IsItemInTargetLibraries(BaseItem item, List<string> targetLibraryNames)
         {
-            this.Logger.LogDebug($"Library filtering enabled. Target libraries: [{string.Join(", ", TargetLibraryNames)}]");
+            this.Logger.LogDebug($"Library filtering enabled. Target libraries: [{string.Join(", ", targetLibraryNames)}]");
             
             var library = GetLibraryFromItem(item);
             if (library == null)
@@ -141,9 +191,9 @@ namespace Jellyfin.Plugin.CinemaMode
 
             this.Logger.LogDebug($"Item '{item.Name}' found in library: '{library.Name}'");
 
-            if (!TargetLibraryNames.Any(targetName => targetName.Equals(library.Name, System.StringComparison.OrdinalIgnoreCase)))
+            if (!targetLibraryNames.Any(targetName => targetName.Equals(library.Name, System.StringComparison.OrdinalIgnoreCase)))
             {
-                this.Logger.LogInformation($"Skipping intros for item '{item.Name}' - in library '{library.Name}' but target libraries are [{string.Join(", ", TargetLibraryNames)}]");
+                this.Logger.LogInformation($"Skipping intros for item '{item.Name}' - in library '{library.Name}' but target libraries are [{string.Join(", ", targetLibraryNames)}]");
                 return false;
             }
 
