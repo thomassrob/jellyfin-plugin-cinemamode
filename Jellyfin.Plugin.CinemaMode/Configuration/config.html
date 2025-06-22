@@ -203,11 +203,16 @@
                         <legend>
                             <h3 class="sectionTitle">Included Libraries</h3>
                         </legend>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="included-libraries">Library Names</label>
-                            <input type="text" id="included-libraries" name="included-libraries" is="emby-input"/>
+                        <div class="selectContainer selectLibrary flex-shrink-zero"> 
+                            <label class="selectLabel" for="includedLibrariesSelect">Target Libraries</label>
+                            <select is="emby-select" class="emby-select-withcolor emby-select" label="" id="includedLibrariesSelect" multiple>
+                            </select> 
+                            <div class="selectArrowContainer">
+                                <div style="visibility:hidden;display:none;">0</div>
+                                <span class="selectArrow material-icons keyboard_arrow_down" aria-hidden="true"></span>
+                            </div>
                             <div class="fieldDescription">
-                                Comma-separated list of library names where Cinema Mode should be active. Leave empty for all libraries.
+                                Select the movie libraries where Cinema Mode should be active. Hold Ctrl/Cmd to select multiple libraries. Leave empty for all libraries.
                             </div>
                         </div>
                     </fieldset>
@@ -483,6 +488,45 @@
                 });
             };
 
+            function initMultiselectLibrarySelector(selectorID, selectedLibraries) {
+                var selector = document.getElementById(selectorID);
+                mediaFolders.then((folderArray) => {
+                    // Clear existing options
+                    selector.innerHTML = "";
+                    
+                    // Add movie libraries
+                    for (const folder of folderArray) {
+                        if (folder.CollectionType == "movies") {
+                            var opt = document.createElement('option'); 
+                            opt.value = folder.Name; // Use library name as value
+                            opt.innerHTML = folder.Name;
+                            selector.appendChild(opt);
+                        };
+                    };
+                    
+                    // Set selected values
+                    if (selectedLibraries && selectedLibraries.trim() !== "") {
+                        var selectedArray = selectedLibraries.split(',').map(lib => lib.trim());
+                        for (let i = 0; i < selector.options.length; i++) {
+                            if (selectedArray.includes(selector.options[i].value)) {
+                                selector.options[i].selected = true;
+                            }
+                        }
+                    }
+                });
+            };
+
+            function getSelectedLibraries(selectorID) {
+                var selector = document.getElementById(selectorID);
+                var selected = [];
+                for (let i = 0; i < selector.options.length; i++) {
+                    if (selector.options[i].selected) {
+                        selected.push(selector.options[i].value);
+                    }
+                }
+                return selected.join(',');
+            }
+
             $('.cinemaModeConfigurationPage').on('pageshow', function () {
                 Dashboard.showLoadingMsg();
                 clearList('trailerPreRollLibrarySelect');
@@ -508,7 +552,7 @@
 
                     initSeasonalTagDefs(config.SeasonalTagDefinitions);
                     initTrailerRules(config.TrailerSelectionRules);
-                    $('#included-libraries').val(config.IncludedLibraries);
+                    initMultiselectLibrarySelector('includedLibrariesSelect', config.IncludedLibraries);
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -534,7 +578,7 @@
                     config.NumberOfTrailers = parseInt(NumberOfTrailers);
                     config.EnforceRatingLimitTrailers = document.getElementById('enforce-rating-limit-trailers').checked;
                     config.TrailerConsumeMode = document.getElementById('trailer-rules-consume-mode').checked;
-                    config.IncludedLibraries = $('#included-libraries').val();
+                    config.IncludedLibraries = getSelectedLibraries('includedLibrariesSelect');
 
                     ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                 });
