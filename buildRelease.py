@@ -8,9 +8,9 @@ import sys
 from dataclasses import dataclass
 
 
-RELEASE_DIR = "Jellyfin.Plugin.CinemaMode/bin/release/net8.0/"
-RELEASE_DLL = "Jellyfin.Plugin.CinemaMode/bin/release/net8.0/Jellyfin.Plugin.CinemaMode.dll"
-RELEASE_META = "Jellyfin.Plugin.CinemaMode/bin/release/net8.0/meta.json"
+RELEASE_DIR = "Jellyfin.Plugin.CinemaMode/bin/release/net9.0/"
+RELEASE_DLL = "Jellyfin.Plugin.CinemaMode/bin/release/net9.0/Jellyfin.Plugin.CinemaMode.dll"
+RELEASE_META = "Jellyfin.Plugin.CinemaMode/bin/release/net9.0/meta.json"
 
 
 @dataclass
