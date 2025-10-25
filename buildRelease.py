@@ -37,9 +37,11 @@ class Meta:
         with open("build.yaml", "r") as yml:
             build_yaml = yaml.safe_load(yml)
 
+        changelog = "".join(f"- {i}\n" for i in build_yaml["changelog"])
+
         return cls(
             category=build_yaml["category"],
-            changelog=build_yaml["changelog"],
+            changelog=changelog,
             description=build_yaml["description"],
             guid=build_yaml["guid"],
             imageUrl="https://github.com/CherryFloors/jellyfin-plugin-cinemamode/raw/main/Jellyfin.Plugin.CinemaMode/Images/jellyfin-plugin-cinemamode.png",
